@@ -195,7 +195,7 @@ def delete_msg(chat_id, message_id, bc=None):
     if bc:
         for m_fn in [lambda: bot.delete_business_messages(bc, chat_id, [message_id]), lambda: bot.delete_message(chat_id, message_id)]:
             try: m_fn(); break
-            : except: pass
+             except: pass
     else:
         try: bot.delete_message(chat_id, message_id)
         except: pass
