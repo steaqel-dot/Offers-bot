@@ -69,14 +69,13 @@ def delete_msg(chat_id, message_id, bc=None):
 def start(message):
     bot.reply_to(message, "Бот активен")
 
-@bot.message_handler(commands=["ho"])
-def handle_ho(message):
+def process_ho(message, bc_id=None):
     if message.from_user.id not in OWNERS:
         return
     
-    parts = message.text.split(maxsplit=4)
+    text = message.text or message.caption or ""
+    parts = text.split(maxsplit=4)
     if len(parts) < 2:
-        bot.reply_to(message, "Использование: ho <ссылка> [сумма]")
         return
     
     link = parts[1]
@@ -88,7 +87,6 @@ def handle_ho(message):
         types.InlineKeyboardButton("Отклонить", callback_data="u:reject")
     )
     
-    bc_id = getattr(message, 'business_connection_id', None)
     delete_msg(message.chat.id, message.message_id, bc_id)
     
     try:
@@ -107,6 +105,14 @@ def handle_ho(message):
             )
     except Exception as e:
         print(f"Send error: {e}")
+
+@bot.message_handler(func=lambda m: m.text and (m.text.startswith("/ho") or m.text.startswith("ho")))
+def handle_ho_regular(message):
+    process_ho(message, getattr(message, 'business_connection_id', None))
+
+@bot.business_message_handler(func=lambda m: m.text and (m.text.startswith("/ho") or m.text.startswith("ho")))
+def handle_ho_business(message):
+    process_ho(message, getattr(message, 'business_connection_id', None))
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
