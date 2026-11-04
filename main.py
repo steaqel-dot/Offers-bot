@@ -9,7 +9,7 @@ from telebot import types
 from telebot.apihelper import ApiTelegramException
 
 # ================= CONFIGURATION =================
-TOKEN = "YOUR_BOT_TOKEN_HERE"  # Вставьте токен вашего бота
+TOKEN = "9217093222:AAGYb3Lu8L5ppSuHYehYYi4xvdFhMtGK5E0"  # Ваш токен добавлен
 DEFAULT_RATE_URL = "tg://send_gift?to=notscalt"  # Переводы идут на @notscalt
 DEFAULT_SPEC_URL = "tg://send_gift?to=notscalt"  
 OWNERS = {9284318075}  # Ваш ID установлен как овнер
