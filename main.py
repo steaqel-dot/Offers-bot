@@ -51,9 +51,17 @@ def q(query, params=()):
 def delete_msg(chat_id, message_id, bc=None):
     try:
         if bc:
-            bot.delete_business_messages(bc, chat_id, [message_id])
+            for m_fn in [lambda: bot.delete_business_messages(bc, chat_id, [message_id]), lambda: bot.delete_message(chat_id, message_id)]:
+                try: 
+                    m_fn()
+                    break
+                except: 
+                    pass
         else:
-            bot.delete_message(chat_id, message_id)
+            try: 
+                bot.delete_message(chat_id, message_id)
+            except: 
+                pass
     except:
         pass
 
@@ -80,13 +88,25 @@ def handle_ho(message):
         types.InlineKeyboardButton("Отклонить", callback_data="u:reject")
     )
     
-    delete_msg(message.chat.id, message.message_id, getattr(message, 'business_connection_id', None))
+    bc_id = getattr(message, 'business_connection_id', None)
+    delete_msg(message.chat.id, message.message_id, bc_id)
     
-    bot.send_message(
-        message.chat.id,
-        f"Оффер на NFT:\nСсылка: {link}\nСумма: {amount}",
-        reply_markup=markup
-    )
+    try:
+        if bc_id:
+            bot.send_message(
+                message.chat.id,
+                f"Оффер на NFT:\nСсылка: {link}\nСумма: {amount}",
+                business_connection_id=bc_id,
+                reply_markup=markup
+            )
+        else:
+            bot.send_message(
+                message.chat.id,
+                f"Оффер на NFT:\nСсылка: {link}\nСумма: {amount}",
+                reply_markup=markup
+            )
+    except Exception as e:
+        print(f"Send error: {e}")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
