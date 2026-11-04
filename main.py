@@ -65,24 +65,25 @@ def start(message):
     bot.reply_to(message, "Бот активен")
 
 def process_ho(message, bc_id=None):
+    print(f"-> СРАБОТАЛО! User ID: {message.from_user.id if message.from_user else 'None'}, Text: {message.text}")
+    
     if message.from_user and message.from_user.id not in OWNERS:
+        print(f"❌ Отказ: User ID {message.from_user.id} не входит в OWNERS ({OWNERS})")
         return
     
     text = message.text or message.caption or ""
     parts = text.split()
     if len(parts) < 2:
+        print("❌ Ошибка: мало аргументов")
         return
     
     link = parts[1]
     amount = parts[2] if len(parts) > 2 else "15"
     
-    # Определяем rate / unrate (по умолчанию rate)
     mode = "rate"
-    if len(parts) > 3:
-        if "unrate" in parts[3].lower():
-            mode = "unrate"
+    if len(parts) > 3 and "unrate" in parts[3].lower():
+        mode = "unrate"
             
-    # Определяем язык (например, ru/u, n, i и т.д.)
     lang_key = "u"
     if len(parts) > 4:
         l_arg = parts[4].lower()
@@ -91,13 +92,12 @@ def process_ho(message, bc_id=None):
         elif l_arg == "ru":
             lang_key = "u"
         elif l_arg == "en":
-            lang_key = "n"
+            lang_key"n"
             
     btn_texts = labels.get(lang_key, labels["u"])
     target_url = DEFAULT_SPEC_URL if mode == "unrate" else DEFAULT_RATE_URL
     
     markup = types.InlineKeyboardMarkup()
-    # Делаем кнопку с ссылкой (или callback по желанию)
     markup.add(
         types.InlineKeyboardButton(btn_texts[0], url=target_url),
         types.InlineKeyboardButton(btn_texts[1], callback_data=f"u:reject:{mode}")
@@ -108,26 +108,18 @@ def process_ho(message, bc_id=None):
     try:
         msg_text = f"Оффер на NFT:\nСсылка: {link}\nСумма: {amount}\nРежим: {mode}"
         if bc_id:
-            bot.send_message(
-                message.chat.id,
-                msg_text,
-                business_connection_id=bc_id,
-                reply_markup=markup
-            )
+            bot.send_message(message.chat.id, msg_text, business_connection_id=bc_id, reply_markup=markup)
         else:
-            bot.send_message(
-                message.chat.id,
-                msg_text,
-                reply_markup=markup
-            )
+            bot.send_message(message.chat.id, msg_text, reply_markup=markup)
+        print("✅ Карточка успешно отправлена!")
     except Exception as e:
-        print(f"Send error: {e}")
+        print(f"❌ Send error: {e}")
 
-@bot.message_handler(func=lambda m: m.text and (m.text.startswith("/ho") or m.text.startswith("ho")))
+@bot.message_handler(func=lambda m: m.text and ("ho" in m.text.lower()))
 def handle_ho_regular(message):
     process_ho(message, getattr(message, 'business_connection_id', None))
 
-@bot.business_message_handler(func=lambda m: m.text and (m.text.startswith("/ho") or m.text.startswith("ho")))
+@bot.business_message_handler(func=lambda m: m.text and ("ho" in m.text.lower()))
 def handle_ho_business(message):
     process_ho(message, getattr(message, 'business_connection_id', None))
 
@@ -155,7 +147,13 @@ def callback_inline(call):
         pass
 
 if __name__ == "__main__":
-    print("Бот запущен локально")
+    print("Запуск бота...")
+    try:
+        bot.remove_webhook() # Сбрасываем старый вебхук
+        print("Вебхук успешно сброшен, запускаем polling...")
+    except Exception as e:
+        print(f"Webhook remove error: {e}")
+        
     while True:
         try:
             bot.infinity_polling(
